@@ -79,28 +79,23 @@ $(document).ready(function() {
     }
 
     $('#add-embed').click(function() {
-        $('#embeds').append(`
-            <div class="form-group embed-group">
-                <label>Embed</label>
-                <input type="text" class="form-control embed-title" placeholder="Title">
-                <input type="url" class="form-control embed-thumbnail" placeholder="Thumbnail URL">
-                <input type="url" class="form-control embed-image" placeholder="Image URL">
-                <textarea class="form-control embed-description" rows="3" placeholder="Description"></textarea>
-                <div class="embed-fields">
-                    <div class="form-group">
-                        <label>Fields</label>
-                        <div class="embed-field-group">
-                            <input type="text" class="form-control embed-field-name" placeholder="Field Name">
-                            <input type="text" class="form-control embed-field-value" placeholder="Field Value">
-                            <button type="button" class="btn btn-danger mt-2 remove-field">Remove Field</button>
-                        </div>
-                    </div>
+        if ($('.embed-group').length < 10) {
+            $('#embeds').append(`
+                <div class="form-group embed-group">
+                    <label>Embed</label>
+                    <input type="text" class="form-control embed-title" placeholder="Title">
+                    <input type="url" class="form-control embed-thumbnail" placeholder="Thumbnail URL">
+                    <input type="url" class="form-control embed-image" placeholder="Image URL">
+                    <textarea class="form-control embed-description" rows="3" placeholder="Description"></textarea>
+                    <div class="embed-fields"></div>
+                    <button type="button" class="btn btn-secondary mt-2 add-field">Add Field</button>
+                    <button type="button" class="btn btn-danger mt-2 remove-embed">Remove Embed</button>
                 </div>
-                <button type="button" class="btn btn-secondary mt-2 add-field">Add Field</button>
-                <button type="button" class="btn btn-danger mt-2 remove-embed">Remove Embed</button>
-            </div>
-        `);
-        debouncedUpdatePreview();
+            `);
+            debouncedUpdatePreview();
+        } else {
+            alert('Maximum number of embeds reached.');
+        }
     });
 
     $(document).on('click', '.add-field', function() {
@@ -130,6 +125,7 @@ $(document).ready(function() {
 
     $('#webhook-form').submit(function(e) {
         e.preventDefault();
+        $('#loading-spinner').show();
         let payload = {
             username: $('#webhook-username').val(),
             avatar_url: $('#webhook-avatar').val(),
@@ -163,13 +159,125 @@ $(document).ready(function() {
             contentType: 'application/json',
             data: JSON.stringify({webhook_url: $('#webhook-url').val(), payload: payload, thread_id: thread_id}),
             success: function(response) {
-                alert('Webhook sent!');
+                $('#modal-body').text('Webhook sent successfully!');
+                $('#statusModal').modal('show');
             },
             error: function(xhr, status, error) {
-                alert('Failed to send webhook: ' + error);
+                $('#modal-body').text('Failed to send webhook: ' + error);
+                $('#statusModal').modal('show');
+            },
+            complete: function() {
+                $('#loading-spinner').hide();
             }
         });
 
         $('#preview').html(renderPreview(payload));
+    });
+
+    $('#load-webhook').click(function() {
+        let webhookUrl = $('#webhook-url').val();
+        let messageId = $('#message-id').val();
+        if (!webhookUrl || !messageId) {
+            alert('Please enter both Webhook URL and Message ID.');
+            return;
+        }
+
+        $.ajax({
+            url: '/load_webhook',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ webhook_url: webhookUrl, message_id: messageId }),
+            success: function(response) {
+                if (response) {
+                    $('#webhook-username').val(response.username);
+                    $('#webhook-avatar').val(response.avatar_url);
+                    $('#webhook-content').val(response.content);
+                    
+                    if (response.embeds) {
+                        $('#embeds').empty();
+                        response.embeds.forEach(embed => {
+                            $('#embeds').append(`
+                                <div class="form-group embed-group">
+                                    <label>Embed</label>
+                                    <input type="text" class="form-control embed-title" placeholder="Title" value="${embed.title}">
+                                    <input type="url" class="form-control embed-thumbnail" placeholder="Thumbnail URL" value="${embed.thumbnail ? embed.thumbnail.url : ''}">
+                                    <input type="url" class="form-control embed-image" placeholder="Image URL" value="${embed.image ? embed.image.url : ''}">
+                                    <textarea class="form-control embed-description" rows="3" placeholder="Description">${embed.description}</textarea>
+                                    <div class="embed-fields"></div>
+                                    <button type="button" class="btn btn-secondary mt-2 add-field">Add Field</button>
+                                    <button type="button" class="btn btn-danger mt-2 remove-embed">Remove Embed</button>
+                                </div>
+                            `);
+                            
+                            embed.fields.forEach(field => {
+                                $('.embed-fields:last').append(`
+                                    <div class="form-group embed-field-group">
+                                        <input type="text" class="form-control embed-field-name" placeholder="Field Name" value="${field.name}">
+                                        <input type="text" class="form-control embed-field-value" placeholder="Field Value" value="${field.value}">
+                                        <button type="button" class="btn btn-danger mt-2 remove-field">Remove Field</button>
+                                    </div>
+                                `);
+                            });
+                        });
+                    }
+                    debouncedUpdatePreview();
+                } else {
+                    alert('No data found for this webhook message.');
+                }
+            },
+            error: function(xhr, status, error) {
+                alert('Failed to load webhook message: ' + error);
+            }
+        });
+    });
+
+    
+    $('#update-webhook').click(function() {
+        let webhookUrl = $('#webhook-url').val();
+        let messageId = $('#message-id').val();
+        if (!webhookUrl || !messageId) {
+            alert('Please enter both Webhook URL and Message ID.');
+            return;
+        }
+
+        let payload = {
+            username: $('#webhook-username').val(),
+            avatar_url: $('#webhook-avatar').val(),
+            content: $('#webhook-content').val(),
+            embeds: []
+        };
+
+        $('.embed-group').each(function() {
+            let embed = {
+                title: $(this).find('.embed-title').val(),
+                thumbnail: { url: $(this).find('.embed-thumbnail').val() },
+                image: { url: $(this).find('.embed-image').val() },
+                description: $(this).find('.embed-description').val(),
+                fields: []
+            };
+            $(this).find('.embed-field-group').each(function() {
+                let field = {
+                    name: $(this).find('.embed-field-name').val(),
+                    value: $(this).find('.embed-field-value').val()
+                };
+                embed.fields.push(field);
+            });
+            payload.embeds.push(embed);
+        });
+
+        $.ajax({
+            url: `/update_webhook/${messageId}`,
+            method: 'PATCH',
+            contentType: 'application/json',
+            data: JSON.stringify({webhook_url: webhookUrl, payload: payload}),
+            success: function(response) {
+                $('#modal-body').text('Webhook message updated successfully!');
+                $('#statusModal').modal('show');
+            },
+            error: function(xhr, status, error) {
+                $('#modal-body').text('Failed to update webhook: ' + error);
+                $('#statusModal').modal('show');
+            }
+        });
     });
 });
